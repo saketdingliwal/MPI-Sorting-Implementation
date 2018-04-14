@@ -124,7 +124,6 @@ int main(int argc,char * argv[])
     my_col++;
     fclose (pFile);
   }
-  cout << row_work << " " << col_work <<endl;
   while(true)
   {
     float linearized_col2row[col_work*row_work*num_proc];
@@ -140,6 +139,8 @@ int main(int argc,char * argv[])
         linearized_col2row[start] = keys_mat[i][j].key;
         for(int k=0;k<max_n;k++)
         {
+          if(keys_mat[i][j].value.size()<max_n)
+            keys_mat[i][j].value.push_back('\0');
           linearized_col2row_value[start*max_n + k] = keys_mat[i][j].value[k];
         }
         start++;
@@ -150,7 +151,6 @@ int main(int argc,char * argv[])
         }
       }
     }
-    // exit(0);
     int success = MPI_Alltoall(linearized_col2row,col_work*row_work,MPI_FLOAT,recd_buff,col_work*row_work,MPI_FLOAT,MPI_COMM_WORLD);
     success = MPI_Alltoall(linearized_col2row_value,max_n*col_work*row_work,MPI_CHAR,recd_buff_value,max_n*col_work*row_work,MPI_CHAR,MPI_COMM_WORLD);
     for(int i=0;i<row_work;i++)
