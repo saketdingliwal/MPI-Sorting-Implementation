@@ -1,0 +1,4 @@
+0
+--------------------------------------------------------------------------
+mpirun noticed that process rank 0 with PID 9516 on node saket exited on signal 11 (Segmentation fault).
+--------------------------------------------------------------------------

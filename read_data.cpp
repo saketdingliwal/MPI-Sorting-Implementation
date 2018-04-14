@@ -47,7 +47,7 @@ int main(int argc,char * argv[])
     string out_string;
     stringstream ss;
     ss << (ind+1);
-    out_string = "./data/cold/col" + ss.str();
+    out_string = "./data/col" + ss.str();
     pFile = fopen ( out_string.c_str()  , "rb" );
     if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
     fseek (pFile , 0 , SEEK_END);
@@ -98,7 +98,7 @@ int main(int argc,char * argv[])
     string out_string;
     stringstream ss;
     ss << (ind+1);
-    out_string = "./data/cold/col" + ss.str();
+    out_string = "./data/col" + ss.str();
     pFile = fopen ( out_string.c_str()  , "rb" );
     if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
     fseek (pFile , 0 , SEEK_END);
@@ -113,26 +113,35 @@ int main(int argc,char * argv[])
       result = fread (key_buffer,4,1,pFile);
       keys_mat[my_col][i].key = key_buffer[0];
       result = fread (val_buffer,1,n,pFile);
-      // cout << val_buffer << endl;
+      for(int k=0;k<max_n;k++)
+      {
+        if(k<n)
+          keys_mat[my_col][i].value.push_back(val_buffer[k]);
+        else
+          keys_mat[my_col][i].value.push_back('\0');
+      }
     }
     my_col++;
     fclose (pFile);
   }
-
-  int hagga = 0;
+  cout << row_work << " " << col_work <<endl;
   while(true)
   {
-    if(rank==0)
-      cout << hagga << endl;
-    hagga++;
     float linearized_col2row[col_work*row_work*num_proc];
+    char linearized_col2row_value[max_n*col_work*row_work*num_proc];
     float recd_buff[col_work*row_work*num_proc];
+    char recd_buff_value[max_n*col_work*row_work*num_proc];
+
     for(int i=0;i<col_work;i++)
     {
       int start = i * row_work;
       for(int j=0;j<new_row_count;j++)
       {
         linearized_col2row[start] = keys_mat[i][j].key;
+        for(int k=0;k<max_n;k++)
+        {
+          linearized_col2row_value[start*max_n + k] = keys_mat[i][j].value[k];
+        }
         start++;
         if(start%row_work==0)
         {
@@ -141,13 +150,22 @@ int main(int argc,char * argv[])
         }
       }
     }
+    // exit(0);
     int success = MPI_Alltoall(linearized_col2row,col_work*row_work,MPI_FLOAT,recd_buff,col_work*row_work,MPI_FLOAT,MPI_COMM_WORLD);
+    success = MPI_Alltoall(linearized_col2row_value,max_n*col_work*row_work,MPI_CHAR,recd_buff_value,max_n*col_work*row_work,MPI_CHAR,MPI_COMM_WORLD);
     for(int i=0;i<row_work;i++)
     {
       int start = i;
       for(int j=0;j<new_col_count;j++)
       {
         new_keys_mat[i][j].key = recd_buff[start];
+        for(int k=0;k<max_n;k++)
+        {
+          char recd = recd_buff_value[start*max_n + k];
+          if(new_keys_mat[i][j].value.size()==0)
+            new_keys_mat[i][j].value.resize(max_n);
+          new_keys_mat[i][j].value[k] = recd;
+        }
         start+=row_work;
       }
     }
@@ -176,22 +194,16 @@ int main(int argc,char * argv[])
     }
     if(main_flag==0)
       break;
-    // for(int i=0;i<row_work;i++)
-    // {
-    //   for(int j=0;j<new_col_count;j++)
-    //   {
-    //     if(rank==0)
-    //     cout << new_keys_mat[i][j].key << " ";
-    //   }
-    //   if(rank==0)
-    //   cout << endl;
-    // }
     for(int i=0;i<row_work;i++)
     {
       int start = i*col_work;
       for(int j=0;j<new_col_count;j++)
       {
         linearized_col2row[start] = new_keys_mat[i][j].key;
+        for(int k=0;k<max_n;k++)
+        {
+          linearized_col2row_value[start*max_n + k] = new_keys_mat[i][j].value[k];
+        }
         start++;
         if(start%col_work==0)
         {
@@ -201,12 +213,18 @@ int main(int argc,char * argv[])
       }
     }
     success = MPI_Alltoall(linearized_col2row,col_work*row_work,MPI_FLOAT,recd_buff,col_work*row_work,MPI_FLOAT,MPI_COMM_WORLD);
+    success = MPI_Alltoall(linearized_col2row_value,max_n*col_work*row_work,MPI_CHAR,recd_buff_value,max_n*col_work*row_work,MPI_CHAR,MPI_COMM_WORLD);
     for(int i=0;i<col_work;i++)
     {
       int start = i;
       for(int j=0;j<new_row_count;j++)
       {
         keys_mat[i][j].key = recd_buff[start];
+        for(int k=0;k<max_n;k++)
+        {
+          char recd = recd_buff_value[start*max_n + k];
+          keys_mat[i][j].value[k] = recd;
+        }
         start += col_work;
       }
     }
@@ -215,7 +233,46 @@ int main(int argc,char * argv[])
       sort(keys_mat[i],keys_mat[i]+new_row_count,datacompare);
     }
   }
+  int byte_counter = 0;
+  for(int i=0;i<row_work;i++)
+  {
+    for(int j=0;j<new_col_count;j++)
+    {
+      if(new_keys_mat[i][j].key!=inf)
+        byte_counter +=4;
+      for(int k=0;k<max_n;k++)
+      {
+        if(new_keys_mat[i][j].value[k]!='\0')
+          byte_counter +=1;
+      }
+    }
+  }
+  int bytes_seek[num_proc];
+  int pref[num_proc];
+  pref[0] = 0;
+  MPI_Allgather(&byte_counter,1,MPI_INT,bytes_seek,1,MPI_INT,MPI_COMM_WORLD);
+  for(int i=1;i<num_proc;i++)
+  {
+    pref[i] = bytes_seek[i-1] + pref[i-1];
+  }
 
+  MPI_Status status;
+  MPI_File fh;
+  MPI_File_open(MPI_COMM_WORLD,"col0",MPI_MODE_CREATE | MPI_MODE_WRONLY,MPI_INFO_NULL,&fh);
+  MPI_File_seek(fh, pref[rank], MPI_SEEK_SET);
+  for(int i=0;i<row_work;i++)
+  {
+    for(int j=0;j<new_col_count;j++)
+    {
+      if(new_keys_mat[i][j].key!=inf)
+        MPI_File_write(fh,&new_keys_mat[i][j].key,1,MPI_FLOAT,&status);
+      for(int k=0;k<max_n;k++)
+      {
+        if(new_keys_mat[i][j].value[k]!='\0')
+          MPI_File_write(fh,&new_keys_mat[i][j].value[k],1,MPI_CHAR,&status);
+      }
+    }
+  }
   MPI_Finalize();
   return 0;
 }
