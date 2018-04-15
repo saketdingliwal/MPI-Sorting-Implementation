@@ -15,16 +15,20 @@ typedef struct data
 {
   float key;
   vector <char> value;
-  int n;
 }data;
 
 bool datacompare(data lhs, data rhs) {return lhs.key < rhs.key;}
+
+vector<vector<data> >keys_mat;
+vector<vector<data> >new_keys_mat;
+
 
 int main(int argc,char * argv[])
 {
   int rank;
   int num_proc;
   int col_count = atoi(argv[1]);
+  string file_name = argv[2];
 
   MPI_Init(&argc,&argv);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -47,7 +51,7 @@ int main(int argc,char * argv[])
     string out_string;
     stringstream ss;
     ss << (ind+1);
-    out_string = "./data/col" + ss.str();
+    out_string = file_name + ss.str();
     pFile = fopen ( out_string.c_str()  , "rb" );
     if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
     fseek (pFile , 0 , SEEK_END);
@@ -75,15 +79,35 @@ int main(int argc,char * argv[])
   int row_count = max_row;
   int row_work = get_work(row_count,num_proc);
   int new_row_count = row_work * num_proc;
-  data keys_mat[col_work][new_row_count];
+  // data keys_mat[col_work][new_row_count];
   // float keys_mat[col_work][new_row_count];
-  data new_keys_mat[row_work][new_col_count];
+  // data new_keys_mat[row_work][new_col_count];
   // float new_keys_mat[row_work][new_col_count];
+
   for(int i=0;i<col_work;i++)
   {
+    vector<data> colm;
     for(int j=0;j<new_row_count;j++)
-      keys_mat[i][j].key = inf; // todo for if input has its own float max
+    {
+      data elem;
+      elem.key = inf; // todo for if input has its own float max
+      colm.push_back(elem);
+    }
+    keys_mat.push_back(colm);
   }
+
+  for(int i=0;i<row_work;i++)
+  {
+    vector<data> colm;
+    for(int j=0;j<new_col_count;j++)
+    {
+      data elem;
+      elem.key = inf; // todo for if input has its own float max
+      colm.push_back(elem);
+    }
+    new_keys_mat.push_back(colm);
+  }
+
   my_col = 0;
   for(int ind=rank*col_work;ind<min(col_count,rank*col_work+col_work);ind+=1)
   {
@@ -98,7 +122,7 @@ int main(int argc,char * argv[])
     string out_string;
     stringstream ss;
     ss << (ind+1);
-    out_string = "./data/col" + ss.str();
+    out_string = file_name + ss.str();
     pFile = fopen ( out_string.c_str()  , "rb" );
     if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
     fseek (pFile , 0 , SEEK_END);
@@ -124,16 +148,30 @@ int main(int argc,char * argv[])
     my_col++;
     fclose (pFile);
   }
+  int savee = (int) 1 * col_work*row_work*num_proc;
+  int save2 = (int) 1 * col_work*row_work*num_proc*max_n;
+
+  float *linearized_col2row;
+  float *recd_buff;
+  char *linearized_col2row_value;
+  char *recd_buff_value;
+
+  linearized_col2row = (float *) malloc(sizeof(float)*savee);
+  recd_buff = (float *) malloc(sizeof(float)*savee);
+  linearized_col2row_value = (char *)malloc(sizeof(char)*save2);
+  recd_buff_value = (char *)malloc(sizeof(char)*save2);
+
+  // float linearized_col2row[col_work*row_work*num_proc];
+  // char linearized_col2row_value[max_n*col_work*row_work*num_proc];
+  // float recd_buff[col_work*row_work*num_proc];
+  // char recd_buff_value[max_n*col_work*row_work*num_proc];
+
+  int main_bug = 0;
   while(true)
   {
-    float linearized_col2row[col_work*row_work*num_proc];
-    char linearized_col2row_value[max_n*col_work*row_work*num_proc];
-    float recd_buff[col_work*row_work*num_proc];
-    char recd_buff_value[max_n*col_work*row_work*num_proc];
-
     for(int i=0;i<col_work;i++)
     {
-      int start = i * row_work;
+      int start = (int) 1 * i * row_work;
       for(int j=0;j<new_row_count;j++)
       {
         linearized_col2row[start] = keys_mat[i][j].key;
@@ -155,7 +193,7 @@ int main(int argc,char * argv[])
     success = MPI_Alltoall(linearized_col2row_value,max_n*col_work*row_work,MPI_CHAR,recd_buff_value,max_n*col_work*row_work,MPI_CHAR,MPI_COMM_WORLD);
     for(int i=0;i<row_work;i++)
     {
-      int start = i;
+      int start = (int) 1 * i;
       for(int j=0;j<new_col_count;j++)
       {
         new_keys_mat[i][j].key = recd_buff[start];
@@ -183,7 +221,7 @@ int main(int argc,char * argv[])
           }
         }
       }
-      sort(new_keys_mat[i],new_keys_mat[i]+new_col_count,datacompare);
+      sort(new_keys_mat[i].begin(),new_keys_mat[i].end(),datacompare);
     }
     int flag_array[num_proc];
     MPI_Allgather(&flag,1,MPI_INT,flag_array,1,MPI_INT,MPI_COMM_WORLD);
@@ -192,11 +230,12 @@ int main(int argc,char * argv[])
     {
       main_flag = (main_flag || flag_array[i]);
     }
-    if(main_flag==0)
+    if(main_flag==0 && main_bug==1)
       break;
+    main_bug = 1;
     for(int i=0;i<row_work;i++)
     {
-      int start = i*col_work;
+      int start = (int) 1 * i*col_work;
       for(int j=0;j<new_col_count;j++)
       {
         linearized_col2row[start] = new_keys_mat[i][j].key;
@@ -216,7 +255,7 @@ int main(int argc,char * argv[])
     success = MPI_Alltoall(linearized_col2row_value,max_n*col_work*row_work,MPI_CHAR,recd_buff_value,max_n*col_work*row_work,MPI_CHAR,MPI_COMM_WORLD);
     for(int i=0;i<col_work;i++)
     {
-      int start = i;
+      int start = (int) 1 * i;
       for(int j=0;j<new_row_count;j++)
       {
         keys_mat[i][j].key = recd_buff[start];
@@ -230,49 +269,104 @@ int main(int argc,char * argv[])
     }
     for(int i=0;i<col_work;i++)
     {
-      sort(keys_mat[i],keys_mat[i]+new_row_count,datacompare);
+      sort(keys_mat[i].begin(),keys_mat[i].end(),datacompare);
     }
   }
-  int byte_counter = 0;
-  for(int i=0;i<row_work;i++)
+  MPI_Status status;
+  if(rank==0)
   {
-    for(int j=0;j<new_col_count;j++)
-    {
-      if(new_keys_mat[i][j].key!=inf)
-        byte_counter +=4;
-      for(int k=0;k<max_n;k++)
-      {
-        if(new_keys_mat[i][j].value[k]!='\0')
-          byte_counter +=1;
-      }
-    }
+  	FILE * pFile;
+  	string filee = file_name + "0";
+  	pFile = fopen (filee.c_str(), "wb");
+  	for(int procno=1;procno<=num_proc;procno++)
+  	{
+  		// cout << "proc " << procno-1 <<endl;
+  		for(int i=0;i<row_work;i++)
+		  {
+		    for(int j=0;j<new_col_count;j++)
+		    {
+		      if(new_keys_mat[i][j].key!=inf)
+		      {
+	  				fwrite(&new_keys_mat[i][j].key,4,1,pFile);
+	  				// cout << i << " " << j << " " << new_keys_mat[i][j].key << endl;
+			      for(int k=0;k<max_n;k++)
+			      {
+			        if(new_keys_mat[i][j].value[k]!='\0')
+			          fwrite(&new_keys_mat[i][j].value[k],1,1,pFile);
+			      }
+			    }
+		    }
+		  }
+			if(procno==num_proc)
+				break;
+			MPI_Recv(recd_buff,savee,MPI_FLOAT,procno,0,MPI_COMM_WORLD,&status);
+			MPI_Recv(recd_buff_value,save2,MPI_CHAR,procno,1,MPI_COMM_WORLD,&status);
+			for(int i=0;i<row_work;i++)
+	    {
+	      int start = (int) 1 * i;
+	      for(int j=0;j<new_col_count;j++)
+	      {
+	        new_keys_mat[i][j].key = recd_buff[start];
+	        for(int k=0;k<max_n;k++)
+	        {
+	          char recd = recd_buff_value[start*max_n + k];
+	          if(new_keys_mat[i][j].value.size()==0)
+	            new_keys_mat[i][j].value.resize(max_n);
+	          new_keys_mat[i][j].value[k] = recd;
+	        }
+	        start+=row_work;
+	      }
+	    }
+  	}
+  	fclose (pFile);
   }
-  int bytes_seek[num_proc];
-  int pref[num_proc];
-  pref[0] = 0;
-  MPI_Allgather(&byte_counter,1,MPI_INT,bytes_seek,1,MPI_INT,MPI_COMM_WORLD);
-  for(int i=1;i<num_proc;i++)
+  else
   {
-    pref[i] = bytes_seek[i-1] + pref[i-1];
+		MPI_Send(recd_buff,savee,MPI_FLOAT,0,0,MPI_COMM_WORLD);
+		MPI_Send(recd_buff_value,save2,MPI_CHAR,0,1,MPI_COMM_WORLD);
   }
 
-  MPI_Status status;
-  MPI_File fh;
-  MPI_File_open(MPI_COMM_WORLD,"col0",MPI_MODE_CREATE | MPI_MODE_WRONLY,MPI_INFO_NULL,&fh);
-  MPI_File_seek(fh, pref[rank], MPI_SEEK_SET);
-  for(int i=0;i<row_work;i++)
-  {
-    for(int j=0;j<new_col_count;j++)
-    {
-      if(new_keys_mat[i][j].key!=inf)
-        MPI_File_write(fh,&new_keys_mat[i][j].key,1,MPI_FLOAT,&status);
-      for(int k=0;k<max_n;k++)
-      {
-        if(new_keys_mat[i][j].value[k]!='\0')
-          MPI_File_write(fh,&new_keys_mat[i][j].value[k],1,MPI_CHAR,&status);
-      }
-    }
-  }
+  // int byte_counter = 0;
+  // for(int i=0;i<row_work;i++)
+  // {
+  //   for(int j=0;j<new_col_count;j++)
+  //   {
+  //     if(new_keys_mat[i][j].key!=inf)
+  //       byte_counter +=4;
+  //     for(int k=0;k<max_n;k++)
+  //     {
+  //       if(new_keys_mat[i][j].value[k]!='\0')
+  //         byte_counter +=1;
+  //     }
+  //   }
+  // }
+  // int bytes_seek[num_proc];
+  // int pref[num_proc];
+  // pref[0] = 0;
+  // MPI_Allgather(&byte_counter,1,MPI_INT,bytes_seek,1,MPI_INT,MPI_COMM_WORLD);
+  // for(int i=1;i<num_proc;i++)
+  // {
+  //   pref[i] = bytes_seek[i-1] + pref[i-1];
+  // }
+
+  // MPI_Status status;
+  // MPI_File fh;
+  // string filee = file_name + "01";
+  // MPI_File_open(MPI_COMM_WORLD,filee.c_str(),MPI_MODE_CREATE | MPI_MODE_WRONLY,MPI_INFO_NULL,&fh);
+  // MPI_File_seek(fh, pref[rank], MPI_SEEK_SET);
+  // for(int i=0;i<row_work;i++)
+  // {
+  //   for(int j=0;j<new_col_count;j++)
+  //   {
+  //     if(new_keys_mat[i][j].key!=inf)
+  //       MPI_File_write(fh,&new_keys_mat[i][j].key,1,MPI_FLOAT,&status);
+  //     for(int k=0;k<max_n;k++)
+  //     {
+  //       if(new_keys_mat[i][j].value[k]!='\0')
+  //         MPI_File_write(fh,&new_keys_mat[i][j].value[k],1,MPI_CHAR,&status);
+  //     }
+  //   }
+  // }
   MPI_Finalize();
   return 0;
 }
